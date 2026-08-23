@@ -753,19 +753,27 @@ expressApp.post("/api/user/sync-earnings", async (req, res) => {
 
 expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // "active" or "cancelled"
+  const { action } = req.body;
   try {
     const invSnap = await get(ref(db, `investments/${id}`));
     if (!invSnap.exists()) throw new Error("Investment not found");
     const inv = invSnap.val();
-    if (inv.status !== "pending_review") throw new Error("Investment already processed");
+
+    const currentStatus = String(inv.status || '').toLowerCase();
+    if (currentStatus !== "pending_review" && currentStatus !== "pending" && currentStatus !== "pending_approval") {
+      throw new Error("Investment already processed");
+    }
     
     const now = Date.now();
     const updates: any = {};
-    updates[`investments/${id}/status`] = action;
+    const normalizedAction = String(action || '').toLowerCase();
+    const isApproval = normalizedAction === "active" || normalizedAction === "approved" || normalizedAction === "completed";
+    const targetStatus = isApproval ? "active" : "cancelled";
+
+    updates[`investments/${id}/status`] = targetStatus;
     updates[`investments/${id}/updatedAt`] = now;
     
-    if (action === "active" || action === "APPROVED") {
+    if (targetStatus === "active") {
       updates[`investments/${id}/startDate`] = now;
       updates[`investments/${id}/lastAccrualDate`] = now;
       updates[`investments/${id}/daysAccrued`] = 0;
@@ -778,7 +786,8 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
         const allInvs = allInvsSnap.val();
         for (const [invKey, invVal] of Object.entries(allInvs) as [string, any][]) {
           if (invVal && invVal.userId === inv.userId) {
-            const isApproved = (invKey === id) || invVal.status === 'active' || invVal.status === 'APPROVED' || invVal.status === 'completed';
+            const valStatus = String(invVal.status || '').toLowerCase();
+            const isApproved = (invKey === id) || valStatus === 'active' || valStatus === 'approved' || valStatus === 'completed';
             if (isApproved) {
               const prof = Number(invVal.expectedEarnings) || (Number(invVal.dailyIncome || 0) * Number(invVal.durationDays || 0));
               userExpectedProfitSum += prof;
@@ -790,29 +799,29 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
       if (uSnap.exists()) {
         updates[`users/${inv.userId}/totalEarnings`] = userExpectedProfitSum;
       }
-    } else if (action === "cancelled") {
+    } else {
       const userSnap = await get(ref(db, `users/${inv.userId}`));
       if (userSnap.exists()) {
         const u = userSnap.val();
-        updates[`users/${inv.userId}/balance`] = (u.balance || 0) + inv.investmentAmount;
+        updates[`users/${inv.userId}/balance`] = (Number(u.balance) || 0) + (Number(inv.investmentAmount) || 0);
       }
       const txRef = push(ref(db, "transactions"));
       updates[`transactions/${txRef.key}`] = {
         id: txRef.key,
         userId: inv.userId,
         type: "refund",
-        amount: inv.investmentAmount,
-        description: `Refund for rejected plan: ${inv.planName}`,
+        amount: Number(inv.investmentAmount) || 0,
+        description: `Refund for rejected plan: ${inv.planName || 'Investment'}`,
         status: "completed",
         createdAt: now
       };
     }
     
     await update(ref(db), updates);
-    if (action === "active") {
+    if (targetStatus === "active") {
       await syncEarningsForUser(inv.userId);
     }
-    res.json({ success: true });
+    res.json({ success: true, status: targetStatus });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
   }

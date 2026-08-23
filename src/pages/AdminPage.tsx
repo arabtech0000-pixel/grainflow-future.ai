@@ -32,6 +32,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [brokenScreenshots, setBrokenScreenshots] = useState<{ [key: string]: boolean }>({});
+  const [processingInvId, setProcessingInvId] = useState<string | null>(null);
 
   const fetchAdminDeposits = useCallback(async () => {
     try {
@@ -196,6 +197,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
   };
 
   const handleInvestmentAction = async (id: string, action: 'active' | 'cancelled') => {
+    setProcessingInvId(id);
     try {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch(`/api/admin/investments/${id}`, {
@@ -213,6 +215,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
       onRefresh();
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setProcessingInvId(null);
     }
   };
 
@@ -278,7 +282,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
     }
   };
 
-  const pendingInvestmentsCount = investmentsList.filter(i => i.status === 'pending_review').length;
+  const pendingInvestmentsCount = investmentsList.filter(i => {
+    const s = String(i.status || '').toLowerCase();
+    return s === 'pending_review' || s === 'pending' || s === 'pending_approval';
+  }).length;
 
   return (
     <div className="space-y-6">
@@ -525,52 +532,59 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
               No investment plans recorded yet.
             </div>
           ) : (
-            investmentsList.map((inv, index) => (
-              <div key={`inv-${inv.id || index}`} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-white text-sm">{inv.planName}</span>
-                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                      inv.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      inv.status === 'pending_review' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
-                      inv.status === 'completed' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                      'bg-red-500/10 text-red-400 border border-red-500/20'
-                    }`}>
-                      {inv.status === 'pending_review' ? 'Pending Approval' : inv.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-300">
-                    User: <span className="font-semibold text-white">{getUserName(inv.userId)}</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 flex flex-wrap gap-2">
-                    <span>Invested: <strong className="text-white">{formatUGX(inv.investmentAmount)}</strong></span>
-                    <span>•</span>
-                    <span>Daily: <strong className="text-emerald-400">+{formatUGX(inv.dailyIncome)}/day</strong></span>
-                    <span>•</span>
-                    <span>Duration: <strong className="text-slate-300">{inv.durationDays} Days</strong></span>
-                    <span>•</span>
-                    <span>Accrued: <strong className="text-amber-400">{formatUGX(inv.accruedEarnings || 0)}</strong></span>
-                  </div>
-                </div>
+            investmentsList.map((inv, index) => {
+              const statusLower = String(inv.status || '').toLowerCase();
+              const isPending = statusLower === 'pending_review' || statusLower === 'pending' || statusLower === 'pending_approval';
 
-                {inv.status === 'pending_review' && (
-                  <div className="flex gap-2 w-full md:w-auto shrink-0">
-                    <button
-                      onClick={() => handleInvestmentAction(inv.id, 'active')}
-                      className="flex-1 md:flex-none px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5" /> Approve Plan
-                    </button>
-                    <button
-                      onClick={() => handleInvestmentAction(inv.id, 'cancelled')}
-                      className="flex-1 md:flex-none px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1"
-                    >
-                      <XCircle className="w-3.5 h-3.5" /> Reject Plan
-                    </button>
+              return (
+                <div key={`inv-${inv.id || index}`} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm">{inv.planName}</span>
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                        statusLower === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                        isPending ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                        statusLower === 'completed' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                        'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
+                        {isPending ? 'Pending Approval' : inv.status}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      User: <span className="font-semibold text-white">{getUserName(inv.userId)}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 flex flex-wrap gap-2">
+                      <span>Invested: <strong className="text-white">{formatUGX(inv.investmentAmount)}</strong></span>
+                      <span>•</span>
+                      <span>Daily: <strong className="text-emerald-400">+{formatUGX(inv.dailyIncome)}/day</strong></span>
+                      <span>•</span>
+                      <span>Duration: <strong className="text-slate-300">{inv.durationDays} Days</strong></span>
+                      <span>•</span>
+                      <span>Accrued: <strong className="text-amber-400">{formatUGX(inv.accruedEarnings || 0)}</strong></span>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))
+
+                  {isPending && (
+                    <div className="flex gap-2 w-full md:w-auto shrink-0">
+                      <button
+                        disabled={processingInvId === inv.id}
+                        onClick={() => handleInvestmentAction(inv.id, 'active')}
+                        className="flex-1 md:flex-none px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" /> {processingInvId === inv.id ? 'Processing...' : 'Approve Plan'}
+                      </button>
+                      <button
+                        disabled={processingInvId === inv.id}
+                        onClick={() => handleInvestmentAction(inv.id, 'cancelled')}
+                        className="flex-1 md:flex-none px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5" /> {processingInvId === inv.id ? 'Processing...' : 'Reject Plan'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}
