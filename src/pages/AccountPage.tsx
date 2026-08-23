@@ -233,6 +233,15 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             {/* Profile Subview */}
             {activeSubView === 'profile' && (
               <div className="space-y-3 text-xs">
+                <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-emerald-950/40 p-3.5 rounded-xl border border-emerald-500/30 flex justify-between items-center">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Earnings</span>
+                    <span className="text-xl font-black text-emerald-400">{formatUGX(wallet.totalEarnings)}</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20">
+                    Live Balance
+                  </span>
+                </div>
                 <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
                   <div className="flex justify-between text-slate-400">
                     <span>Full Name:</span>
@@ -266,24 +275,33 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                     No active agricultural investment plans. Go to Products to activate one.
                   </div>
                 ) : (
-                  investments.map((inv) => (
-                    <div key={inv.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs space-y-1.5">
-                      <div className="flex justify-between font-bold text-white">
-                        <span>{inv.planName}</span>
-                        <span className="text-emerald-400">+{formatUGX(inv.dailyIncome)}/day</span>
+                  investments.map((inv) => {
+                    const expectedProfit = inv.expectedEarnings || (inv.dailyIncome * inv.durationDays);
+                    return (
+                      <div key={inv.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs space-y-2">
+                        <div className="flex justify-between font-bold text-white items-center">
+                          <span>{inv.planName}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${inv.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : inv.status === 'pending_review' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-800 text-slate-400'}`}>
+                            {inv.status === 'pending_review' ? 'Pending Approval' : inv.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px] bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                          <div>
+                            <span className="text-slate-500 block font-semibold">Investment Amount</span>
+                            <span className="text-white font-bold">{formatUGX(inv.investmentAmount)}</span>
+                          </div>
+                          <div>
+                            <span className="text-amber-400 block font-semibold">Expected Earnings</span>
+                            <span className="text-emerald-400 font-bold">{formatUGX(expectedProfit)}</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-slate-400 flex justify-between items-center">
+                          <span>Daily: <strong className="text-emerald-400">+{formatUGX(inv.dailyIncome)}/day</strong> ({inv.durationDays} Days)</span>
+                          <span>Earned: <strong className="text-amber-400">{formatUGX(inv.accruedEarnings || 0)}</strong></span>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-slate-400 flex justify-between">
-                        <span>Invested: {formatUGX(inv.investmentAmount)}</span>
-                        <span>{inv.durationDays} Days Plan</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500 flex justify-between">
-                        <span>Accrued: {formatUGX(inv.accruedEarnings)}</span>
-                        <span className={`font-semibold capitalize ${inv.status === 'active' ? 'text-emerald-400' : inv.status === 'pending_review' ? 'text-amber-400' : 'text-slate-400'}`}>
-                          {inv.status === 'pending_review' ? 'Pending Review' : inv.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}

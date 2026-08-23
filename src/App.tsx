@@ -9,6 +9,7 @@ import { HomePage } from './pages/HomePage';
 import { ProductsPage } from './pages/ProductsPage';
 import { TeamPage } from './pages/TeamPage';
 import { AccountPage } from './pages/AccountPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { AdminPage } from './pages/AdminPage';
 import { formatUGX } from './utils/formatters';
 import { auth, db } from './lib/firebase';
@@ -178,8 +179,8 @@ export default function App() {
         setReferralData(prev => ({
           ...prev,
           referralCode: data.referralCode,
-          referralLink: `${window.location.origin}?ref=${data.referralCode}`,
-          referralEarnings: data.referralEarnings || 0
+          referralLink: window.location.origin,
+          referralEarnings: 0
         }));
       }
     });
@@ -188,7 +189,7 @@ export default function App() {
     const invUnsub = onValue(ref(db, 'investments'), (snap) => {
       if (!snap.exists()) {
         setInvestments([]);
-        setWallet(prev => ({ ...prev, totalInvested: 0 }));
+        setWallet(prev => ({ ...prev, totalInvested: 0, totalEarnings: 0 }));
         return;
       }
       const invs: any = [];
@@ -203,6 +204,7 @@ export default function App() {
           const investmentAmount = Number(i.investmentAmount || 0);
           const accruedEarnings = Number(i.accruedEarnings || 0);
           const daysAccrued = Number(i.daysAccrued || 0);
+          const expectedProfit = Number(i.expectedEarnings) || (dailyIncome * durationDays);
 
           invs.push({
             ...i,
@@ -210,21 +212,16 @@ export default function App() {
             investmentAmount,
             dailyIncome,
             durationDays,
+            expectedEarnings: expectedProfit,
             accruedEarnings,
             daysAccrued,
             startDate: new Date(invStartDate).toISOString(),
             endDate: new Date(invStartDate + (durationDays * 24 * 60 * 60 * 1000)).toISOString()
           });
 
-          if (i.status === 'active') {
+          if (i.status === 'active' || i.status === 'APPROVED' || i.status === 'completed') {
             totalInvested += investmentAmount;
-            const diffTime = Math.max(0, Date.now() - invStartDate);
-            const elapsedDays = Math.min(durationDays, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
-            const earned = Math.max(accruedEarnings, elapsedDays * dailyIncome);
-            calculatedEarnings += earned;
-          } else if (i.status === 'completed') {
-            const earned = accruedEarnings || (dailyIncome * durationDays);
-            calculatedEarnings += earned;
+            calculatedEarnings += expectedProfit;
           }
         }
       });
@@ -232,7 +229,7 @@ export default function App() {
       setWallet(prev => ({ 
         ...prev, 
         totalInvested,
-        totalEarnings: Math.max(user?.totalEarnings || 0, calculatedEarnings + (user?.referralEarnings || 0))
+        totalEarnings: calculatedEarnings
       }));
     });
 
@@ -498,6 +495,14 @@ export default function App() {
             onOpenDeposit={() => openDeposit()}
             onOpenWithdraw={() => setIsWithdrawOpen(true)}
             onRefresh={loadUserData}
+          />
+        )}
+        {currentTab === 'profile' && (
+          <ProfilePage
+            user={user}
+            wallet={wallet}
+            investments={investments}
+            onLogout={handleLogout}
           />
         )}
         {currentTab === 'admin' && user.role === 'admin' && (

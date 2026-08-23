@@ -219,35 +219,38 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
           ) : (
             <div className="space-y-2">
-              {[...pendingInvestments, ...activeInvestments].slice(0, 3).map((inv) => (
-                <div key={inv.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between group hover:border-slate-700 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 to-slate-800 border border-slate-700 flex flex-col items-center justify-center flex-shrink-0">
-                      <Zap className="w-4 h-4 text-amber-500 mb-0.5" />
-                      <span className="text-[8px] font-black text-slate-400">{inv.durationDays}D</span>
+              {[...pendingInvestments, ...activeInvestments].slice(0, 3).map((inv) => {
+                const expectedProfit = inv.expectedEarnings || (inv.dailyIncome * inv.durationDays);
+                return (
+                  <div key={inv.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between group hover:border-slate-700 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 to-slate-800 border border-slate-700 flex flex-col items-center justify-center flex-shrink-0">
+                        <Zap className="w-4 h-4 text-amber-500 mb-0.5" />
+                        <span className="text-[8px] font-black text-slate-400">{inv.durationDays}D</span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate flex items-center gap-2">
+                          {inv.planName}
+                          {inv.status === 'pending_review' && (
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded font-semibold">
+                              Pending Review
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span>Invested: <strong className="text-white">{formatUGX(inv.investmentAmount)}</strong></span>
+                          <span className="text-slate-600">•</span>
+                          <span>Expected Return: <strong className="text-emerald-400">{formatUGX(expectedProfit)}</strong></span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-white truncate flex items-center gap-2">
-                        {inv.planName}
-                        {inv.status === 'pending_review' && (
-                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded font-semibold">
-                            Pending Review
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
-                        <span className="text-emerald-400 font-medium">+{formatUGX(inv.dailyIncome)}/day</span>
-                        <span className="text-slate-600">•</span>
-                        <span>Earned: {formatUGX(inv.accruedEarnings)}</span>
-                      </div>
+                    <div className="text-right flex-shrink-0 pl-2">
+                      <div className="text-xs font-black text-amber-400">+{formatUGX(inv.dailyIncome)}/d</div>
+                      <div className="text-[9px] text-slate-500 uppercase font-semibold capitalize">{inv.status === 'pending_review' ? 'Pending' : 'Active'}</div>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0 pl-2">
-                    <div className="text-xs font-black text-white">{formatUGX(inv.investmentAmount)}</div>
-                    <div className="text-[9px] text-slate-500 uppercase font-semibold capitalize">{inv.status === 'pending_review' ? 'Pending' : 'Active'}</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { User, Shield, Bell, Lock, HelpCircle, FileText, LogOut, ChevronRight, CheckCircle2, UserCheck, PhoneCall, Info } from 'lucide-react';
-import { User as UserType } from '../types';
-import { formatDate } from '../utils/formatters';
+import { User, Shield, Bell, Lock, HelpCircle, FileText, LogOut, ChevronRight, CheckCircle2, UserCheck, PhoneCall, Info, TrendingUp, Package } from 'lucide-react';
+import { User as UserType, Wallet, Investment } from '../types';
+import { formatDate, formatUGX } from '../utils/formatters';
 
 interface ProfilePageProps {
   user: UserType;
-  profile: any;
+  wallet?: Wallet;
+  investments?: Investment[];
+  profile?: any;
   onLogout: () => void;
 }
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ user, profile, onLogout }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ user, wallet, investments, profile, onLogout }) => {
   const [successMsg, setSuccessMsg] = useState('');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [activeModal, setActiveModal] = useState<'privacy' | 'terms' | 'support' | null>(null);
@@ -17,6 +19,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, profile, onLogou
   const handleActionClick = (title: string) => {
     alert(`${title} settings updated successfully.`);
   };
+
+  const totalEarnings = wallet?.totalEarnings ?? user.totalEarnings ?? 0;
+  const totalInvested = wallet?.totalInvested ?? 0;
 
   return (
     <div className="space-y-6 pb-20 md:pb-10 max-w-4xl mx-auto">
@@ -42,7 +47,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, profile, onLogou
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-4 pt-4 border-t border-slate-800 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-800 text-xs">
+            <div>
+              <span className="text-slate-500 block">Total Earnings</span>
+              <span className="text-emerald-400 font-bold mt-0.5 block">{formatUGX(totalEarnings)}</span>
+            </div>
             <div>
               <span className="text-slate-500 block">Account Status</span>
               <span className="text-emerald-400 font-bold mt-0.5 block">Active & Verified</span>
@@ -51,10 +60,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, profile, onLogou
               <span className="text-slate-500 block">Registered Phone</span>
               <span className="text-white font-medium mt-0.5 block">{user.phone || '+256 700 000 000'}</span>
             </div>
-            <div className="col-span-2 sm:col-span-1">
+            <div>
               <span className="text-slate-500 block">Member Since</span>
               <span className="text-white font-medium mt-0.5 block">{formatDate(user.createdAt)}</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Total Earnings & Active Investment Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-gradient-to-r from-slate-900 via-emerald-950/20 to-slate-900 rounded-2xl p-5 border border-emerald-500/30 flex items-center justify-between shadow-lg">
+          <div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              TOTAL EARNINGS
+            </span>
+            <span className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight block">
+              {formatUGX(totalEarnings)}
+            </span>
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Expected returns from approved investments
+            </span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-6 h-6" />
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-slate-900 via-amber-950/20 to-slate-900 rounded-2xl p-5 border border-amber-500/30 flex items-center justify-between shadow-lg">
+          <div>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              ACTIVE INVESTMENTS
+            </span>
+            <span className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight block">
+              {formatUGX(totalInvested)}
+            </span>
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Total active principal invested
+            </span>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+            <Package className="w-6 h-6" />
           </div>
         </div>
       </div>

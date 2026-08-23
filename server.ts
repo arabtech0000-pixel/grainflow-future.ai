@@ -276,8 +276,21 @@ async function syncEarningsForUser(targetUserId?: string): Promise<number> {
       if (userSnap.exists()) {
         const userData = userSnap.val();
         globalUpdates[`users/${userId}/balance`] = (Number(userData.balance) || 0) + deltas.balanceDelta;
-        globalUpdates[`users/${userId}/totalEarnings`] = (Number(userData.totalEarnings) || 0) + deltas.earningsDelta;
         globalUpdates[`users/${userId}/updatedAt`] = now;
+      }
+    }
+
+    if (targetUserId) {
+      let userExpectedProfit = 0;
+      for (const [_, inv] of Object.entries(investments) as [string, any][]) {
+        if (inv && inv.userId === targetUserId && (inv.status === 'active' || inv.status === 'APPROVED' || inv.status === 'completed')) {
+          const profit = Number(inv.expectedEarnings) || (Number(inv.dailyIncome || 0) * Number(inv.durationDays || 0));
+          userExpectedProfit += profit;
+        }
+      }
+      const uSnap = await get(ref(db, `users/${targetUserId}`));
+      if (uSnap.exists()) {
+        globalUpdates[`users/${targetUserId}/totalEarnings`] = userExpectedProfit;
       }
     }
     
@@ -707,60 +720,6 @@ expressApp.post("/api/investments/purchase", async (req, res) => {
       createdAt: now
     };
     
-    // Referral bonus if referred with idempotency check
-    if (user.referredBy) {
-      const rewardsSnap = await get(ref(db, "referralRewards"));
-      let alreadyRewarded = false;
-      if (rewardsSnap.exists()) {
-        for (const rw of Object.values(rewardsSnap.val()) as any[]) {
-          if (rw.investmentId === invRef.key) {
-            alreadyRewarded = true;
-            break;
-          }
-        }
-      }
-
-      if (!alreadyRewarded) {
-        const usersSnap = await get(ref(db, "users"));
-        if (usersSnap.exists()) {
-          const allUsers = usersSnap.val();
-          for (const [uId, uData] of Object.entries(allUsers) as [string, any]) {
-            if ((uData.referralCode === user.referredBy || uId === user.referredBy) && uId !== userId) {
-              const commission = prod.investmentAmount * 0.10;
-              updates[`users/${uId}/balance`] = (uData.balance || 0) + commission;
-              updates[`users/${uId}/referralEarnings`] = (uData.referralEarnings || 0) + commission;
-              updates[`users/${uId}/totalEarnings`] = (uData.totalEarnings || 0) + commission;
-              
-              const refTxRef = push(ref(db, "transactions"));
-              updates[`transactions/${refTxRef.key}`] = {
-                id: refTxRef.key,
-                userId: uId,
-                type: "referral_bonus",
-                amount: commission,
-                description: `10% Commission for ${user.fullName || 'User'}'s investment`,
-                status: "completed",
-                createdAt: now
-              };
-
-              const rewardRef = push(ref(db, "referralRewards"));
-              updates[`referralRewards/${rewardRef.key}`] = {
-                id: rewardRef.key,
-                referrerUserId: uId,
-                referredUserId: userId,
-                investmentId: invRef.key,
-                transactionId: txRef.key,
-                percentage: 10,
-                amount: commission,
-                status: "completed",
-                createdAt: now
-              };
-              break;
-            }
-          }
-        }
-      }
-    }
-    
     await update(ref(db), updates);
     res.json({ success: true });
   } catch (e: any) {
@@ -806,11 +765,31 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
     updates[`investments/${id}/status`] = action;
     updates[`investments/${id}/updatedAt`] = now;
     
-    if (action === "active") {
+    if (action === "active" || action === "APPROVED") {
       updates[`investments/${id}/startDate`] = now;
       updates[`investments/${id}/lastAccrualDate`] = now;
       updates[`investments/${id}/daysAccrued`] = 0;
       updates[`investments/${id}/accruedEarnings`] = 0;
+
+      // Recalculate total expected profit for the user from all active/approved investments
+      const allInvsSnap = await get(ref(db, "investments"));
+      let userExpectedProfitSum = 0;
+      if (allInvsSnap.exists()) {
+        const allInvs = allInvsSnap.val();
+        for (const [invKey, invVal] of Object.entries(allInvs) as [string, any][]) {
+          if (invVal && invVal.userId === inv.userId) {
+            const isApproved = (invKey === id) || invVal.status === 'active' || invVal.status === 'APPROVED' || invVal.status === 'completed';
+            if (isApproved) {
+              const prof = Number(invVal.expectedEarnings) || (Number(invVal.dailyIncome || 0) * Number(invVal.durationDays || 0));
+              userExpectedProfitSum += prof;
+            }
+          }
+        }
+      }
+      const uSnap = await get(ref(db, `users/${inv.userId}`));
+      if (uSnap.exists()) {
+        updates[`users/${inv.userId}/totalEarnings`] = userExpectedProfitSum;
+      }
     } else if (action === "cancelled") {
       const userSnap = await get(ref(db, `users/${inv.userId}`));
       if (userSnap.exists()) {

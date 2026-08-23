@@ -20,19 +20,19 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
   };
 
   const handleCopyLink = () => {
-    const link = `${window.location.origin}/register?ref=${user.referralCode || referralData.referralCode}`;
+    const link = window.location.origin;
     navigator.clipboard.writeText(link);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const handleShare = async () => {
-    const link = `${window.location.origin}/register?ref=${user.referralCode || referralData.referralCode}`;
+    const link = window.location.origin;
     if (navigator.share) {
       try {
         await navigator.share({
           title: 'Join Grainflow',
-          text: 'Invest in agriculture and grow with Grainflow. Join my team using my referral link!',
+          text: 'Invest in agriculture and grow with Grainflow.',
           url: link
         });
       } catch (err) {
@@ -59,12 +59,12 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
           </span>
         </div>
         <p className="text-[11px] text-slate-950/90 mt-1 font-medium leading-tight">
-          Invite new members using your unique link or code to receive 10% direct commission bonuses into your wallet.
+          Invite new members to Grainflow using the official application link below.
         </p>
       </div>
 
-      {/* Summary Metrics (4 Compact Columns) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      {/* Summary Metrics (3 Compact Columns) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
         <div className="bg-slate-900 rounded-2xl p-3 border border-slate-800 text-center">
           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
             TOTAL REFERRALS
@@ -91,15 +91,6 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
             {referralData.teamMembers.length}
           </div>
         </div>
-
-        <div className="bg-slate-900 rounded-2xl p-3 border border-slate-800 text-center">
-          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
-            TEAM REWARDS
-          </div>
-          <div className="text-sm sm:text-base font-black text-emerald-400">
-            {formatUGX(referralData.referralEarnings)}
-          </div>
-        </div>
       </div>
 
       {/* Referral Code & Share Link Boxes */}
@@ -107,7 +98,7 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
             <Share2 className="w-3.5 h-3.5 text-amber-400" />
-            <span>Your Invitation Credentials</span>
+            <span>Application Link</span>
           </h3>
           <button
             onClick={handleShare}
@@ -121,10 +112,10 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
         <div className="space-y-3">
           {/* Referral Link */}
           <div>
-            <label className="text-[10px] font-semibold text-slate-400 block mb-1">My Referral Link</label>
+            <label className="text-[10px] font-semibold text-slate-400 block mb-1">Application Link</label>
             <div className="flex items-center space-x-2">
               <div className="flex-1 bg-slate-950 px-3.5 py-2.5 rounded-xl border border-slate-800 font-mono text-slate-300 text-xs truncate">
-                {`${window.location.origin}/register?ref=${user.referralCode || referralData.referralCode}`}
+                {window.location.origin}
               </div>
               <button
                 onClick={handleCopyLink}
@@ -135,23 +126,6 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
               </button>
             </div>
           </div>
-
-          {/* Referral Code */}
-          <div>
-            <label className="text-[10px] font-semibold text-slate-400 block mb-1">Referral Code</label>
-            <div className="flex items-center space-x-2">
-              <div className="flex-1 bg-slate-950 px-3.5 py-2.5 rounded-xl border border-slate-800 font-mono font-bold text-amber-400 text-xs">
-                {user.referralCode || referralData.referralCode}
-              </div>
-              <button
-                onClick={handleCopyCode}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 transition-all flex-shrink-0 border border-slate-700"
-              >
-                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -159,10 +133,10 @@ export const TeamPage: React.FC<TeamPageProps> = ({ user, referralData }) => {
       <div className="bg-slate-900 rounded-2xl p-5 border border-slate-800 space-y-2 shadow-sm">
         <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
           <Award className="w-3.5 h-3.5 text-amber-400" />
-          <span>Commission & Growth Rules</span>
+          <span>Team Network</span>
         </h3>
         <p className="text-xs text-slate-300 leading-relaxed">
-          You earn a 10% commission bonus whenever a member of your team activates a new agricultural investment plan. Commissions are credited directly to your available wallet balance in real time.
+          Invite friends and partners to join Grainflow by sharing the application link above.
         </p>
       </div>
 
