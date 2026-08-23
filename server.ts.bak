@@ -1,0 +1,494 @@
+import express from "express";
+import path from "path";
+import { createServer as createViteServer } from "vite";
+import { initializeApp } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { 
+  getFirestore, doc, setDoc, getDoc, getDocs, collection, 
+  query, where, runTransaction, serverTimestamp, updateDoc 
+} from "firebase/firestore";
+import fs from "fs";
+
+// Load Firebase Config
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+if (!fs.existsSync(configPath)) {
+  console.error("Missing firebase-applet-config.json!");
+  process.exit(1);
+}
+const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)"
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
+
+const expressApp = express();
+const PORT = 3000;
+expressApp.use(express.json());
+
+// Helper to seed database and authenticate server worker
+async function initBackendWorker() {
+  try {
+    let adminUid = "";
+    try {
+      const cred = await signInWithEmailAndPassword(auth, "ashirafashes04@gmail.com", "popular-24");
+      adminUid = cred.user.uid;
+    } catch (e: any) {
+      if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
+        const cred = await createUserWithEmailAndPassword(auth, "ashirafashes04@gmail.com", "popular-24");
+        adminUid = cred.user.uid;
+        await setDoc(doc(db, "users", adminUid), {
+          uid: adminUid,
+          email: "ashirafashes04@gmail.com",
+          fullName: "Ashraf H",
+          phone: "+256700000000",
+          role: "admin",
+          balance: 0,
+          totalEarnings: 0,
+          referralCode: "ASHRAF01",
+          referredBy: null,
+          referralEarnings: 0,
+          totalReferrals: 0,
+          status: "active",
+          createdAt: serverTimestamp()
+        });
+      } else if (e.code === 'auth/operation-not-allowed') {
+        console.error("\n\n=== ACTION REQUIRED ===");
+        console.error("Email/Password authentication is disabled in your Firebase project.");
+        console.error("To create the admin account, please go to the Firebase Console:");
+        console.error("1. Select project 'tera-cosmos-j8chg'");
+        console.error("2. Go to Authentication -> Sign-in method");
+        console.error("3. Enable 'Email/Password'");
+        console.error("4. Restart this dev server.");
+        console.error("=======================\n\n");
+      } else {
+        throw e;
+      }
+    }
+    
+    // Seed VIP Plans
+    const productsSnap = await getDocs(collection(db, "products"));
+    if (productsSnap.empty) {
+      const plans = [
+        { name: "VIP 1", investmentAmount: 20000, dailyIncome: 5000, durationDays: 30 },
+        { name: "VIP 2", investmentAmount: 50000, dailyIncome: 13000, durationDays: 27 },
+        { name: "VIP 3", investmentAmount: 120000, dailyIncome: 32400, durationDays: 24 },
+        { name: "VIP 4", investmentAmount: 250000, dailyIncome: 70000, durationDays: 21 },
+        { name: "VIP 5", investmentAmount: 500000, dailyIncome: 145000, durationDays: 14 },
+        { name: "VIP 6", investmentAmount: 1000000, dailyIncome: 300000, durationDays: 7 },
+      ];
+      
+      for (const plan of plans) {
+        const expectedEarnings = plan.dailyIncome * plan.durationDays;
+        const totalPayout = plan.investmentAmount + expectedEarnings;
+        await setDoc(doc(collection(db, "products")), {
+          ...plan,
+          totalExpectedEarnings: expectedEarnings,
+          totalPayout: totalPayout,
+          isActive: true,
+          isPopular: plan.name === "VIP 5",
+          createdAt: serverTimestamp()
+        });
+      }
+      console.log("VIP Plans seeded.");
+    }
+    
+    console.log("Backend worker authenticated successfully.");
+  } catch (err) {
+    console.error("Backend worker auth failed:", err);
+  }
+}
+
+// Daily Earnings Accrual Engine (Runs every 10 minutes)
+async function processEarningsAccrual() {
+  
+  
+  try {
+    const activeInvestmentsQuery = query(collection(db, "investments"), where("status", "==", "active"));
+    const snapshot = await getDocs(activeInvestmentsQuery);
+    
+    const now = new Date();
+    
+    for (const invDoc of snapshot.docs) {
+      const inv = invDoc.data();
+      const lastAccrued = inv.lastAccrualDate ? inv.lastAccrualDate.toDate() : inv.startDate.toDate();
+      const diffTime = now.getTime() - lastAccrued.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays > 0) {
+        const daysToAccrue = Math.min(diffDays, inv.durationDays - inv.daysAccrued);
+        if (daysToAccrue <= 0) continue;
+        
+        const earnedAmount = daysToAccrue * inv.dailyIncome;
+        const newDaysAccrued = inv.daysAccrued + daysToAccrue;
+        const isCompleted = newDaysAccrued >= inv.durationDays;
+        
+        const userRef = doc(db, "users", inv.userId);
+        
+        await runTransaction(db, async (transaction) => {
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) return;
+          const userData = userDoc.data();
+          
+          let payoutAmount = earnedAmount;
+          if (isCompleted) {
+            payoutAmount += inv.investmentAmount; // Return principal upon completion
+          }
+          
+          const newBalance = (userData.balance || 0) + payoutAmount;
+          const newTotalEarnings = (userData.totalEarnings || 0) + earnedAmount;
+          
+          transaction.update(userRef, {
+            balance: newBalance,
+            totalEarnings: newTotalEarnings
+          });
+          
+          transaction.update(invDoc.ref, {
+            accruedEarnings: inv.accruedEarnings + earnedAmount,
+            daysAccrued: newDaysAccrued,
+            lastAccrualDate: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            status: isCompleted ? "completed" : "active"
+          });
+          
+          // Log transaction
+          const txRef = doc(collection(db, "transactions"));
+          transaction.set(txRef, {
+            userId: inv.userId,
+            type: "earning",
+            amount: earnedAmount,
+            description: `Daily earning for ${inv.planName} (${daysToAccrue} day(s))`,
+            status: "completed",
+            createdAt: serverTimestamp()
+          });
+          
+          if (isCompleted) {
+            const returnTxRef = doc(collection(db, "transactions"));
+            transaction.set(returnTxRef, {
+              userId: inv.userId,
+              type: "earning",
+              amount: inv.investmentAmount,
+              description: `Principal return for completed ${inv.planName}`,
+              status: "completed",
+              createdAt: serverTimestamp()
+            });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Accrual engine error:", err);
+  }
+}
+
+// Start backend interval
+setInterval(processEarningsAccrual, 10 * 60 * 1000); // Check every 10 mins
+
+// --- SECURE BACKEND ENDPOINTS ---
+
+expressApp.post("/api/deposits/request", async (req, res) => {
+  const { userId, amount, method } = req.body;
+  
+  
+  try {
+    const reference = "DEP-" + Math.floor(100000 + Math.random() * 900000);
+    
+    await runTransaction(db, async (transaction) => {
+      const userRef = doc(db, "users", userId);
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists()) throw new Error("User not found");
+      const user = userDoc.data();
+      
+      const depRef = doc(collection(db, "deposits"));
+      transaction.set(depRef, {
+        userId,
+        userName: user.fullName,
+        userEmail: user.email,
+        amount,
+        method,
+        reference,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      const txRef = doc(collection(db, "transactions"));
+      transaction.set(txRef, {
+        userId,
+        type: "deposit",
+        amount,
+        description: `Deposit request via ${method}`,
+        reference,
+        status: "pending",
+        createdAt: serverTimestamp()
+      });
+    });
+    
+    res.json({ success: true, reference });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+expressApp.post("/api/withdrawals/request", async (req, res) => {
+  const { userId, amount, accountNumber, bankName } = req.body;
+  
+  
+  try {
+    const reference = "WIT-" + Math.floor(100000 + Math.random() * 900000);
+    
+    await runTransaction(db, async (transaction) => {
+      const userRef = doc(db, "users", userId);
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists()) throw new Error("User not found");
+      const user = userDoc.data();
+      
+      if ((user.balance || 0) < amount) {
+        throw new Error("Insufficient balance");
+      }
+      
+      // Deduct balance immediately
+      transaction.update(userRef, { balance: user.balance - amount });
+      
+      // Create pending withdrawal
+      const witRef = doc(collection(db, "withdrawals"));
+      transaction.set(witRef, {
+        userId,
+        userName: user.fullName,
+        userEmail: user.email,
+        amount,
+        accountNumber,
+        bankName,
+        reference,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      // Create pending transaction record
+      const txRef = doc(collection(db, "transactions"));
+      transaction.set(txRef, {
+        userId,
+        type: "withdrawal",
+        amount,
+        description: `Withdrawal request to ${bankName} (${accountNumber})`,
+        reference,
+        status: "pending",
+        createdAt: serverTimestamp()
+      });
+    });
+    
+    res.json({ success: true, reference });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Process Deposit
+expressApp.patch("/api/admin/deposits/:id", async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body;
+  
+  
+  try {
+    const depRef = doc(db, "deposits", id);
+    await runTransaction(db, async (transaction) => {
+      const depDoc = await transaction.get(depRef);
+      if (!depDoc.exists()) throw new Error("Deposit not found");
+      const dep = depDoc.data();
+      if (dep.status !== "pending") throw new Error("Deposit already processed");
+      
+      transaction.update(depRef, { status: action, updatedAt: serverTimestamp() });
+      
+      // Update transaction status
+      const txQuery = query(collection(db, "transactions"), where("reference", "==", dep.reference));
+      const txDocs = await getDocs(txQuery);
+      txDocs.forEach(t => transaction.update(t.ref, { status: action }));
+      
+      if (action === "completed") {
+        const userRef = doc(db, "users", dep.userId);
+        const userDoc = await transaction.get(userRef);
+        if (userDoc.exists()) {
+          const newBalance = (userDoc.data().balance || 0) + dep.amount;
+          transaction.update(userRef, { balance: newBalance });
+        }
+      }
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Process Withdrawal
+expressApp.patch("/api/admin/withdrawals/:id", async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body;
+  
+  
+  try {
+    const witRef = doc(db, "withdrawals", id);
+    await runTransaction(db, async (transaction) => {
+      const witDoc = await transaction.get(witRef);
+      if (!witDoc.exists()) throw new Error("Withdrawal not found");
+      const wit = witDoc.data();
+      if (wit.status !== "pending") throw new Error("Withdrawal already processed");
+      
+      transaction.update(witRef, { status: action, updatedAt: serverTimestamp() });
+      
+      // Update transaction status
+      const txQuery = query(collection(db, "transactions"), where("reference", "==", wit.reference));
+      const txDocs = await getDocs(txQuery);
+      txDocs.forEach(t => transaction.update(t.ref, { status: action }));
+      
+      if (action === "rejected") {
+        // Refund balance
+        const userRef = doc(db, "users", wit.userId);
+        const userDoc = await transaction.get(userRef);
+        if (userDoc.exists()) {
+          const newBalance = (userDoc.data().balance || 0) + wit.amount;
+          transaction.update(userRef, { balance: newBalance });
+          
+          const refundTxRef = doc(collection(db, "transactions"));
+          transaction.set(refundTxRef, {
+            userId: wit.userId,
+            type: "deposit",
+            amount: wit.amount,
+            description: "Withdrawal rejection refund",
+            status: "completed",
+            createdAt: serverTimestamp()
+          });
+        }
+      }
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Purchase Investment (Client calls this to securely deduct balance and create investment)
+expressApp.post("/api/investments/purchase", async (req, res) => {
+  const { userId, productId } = req.body;
+  if (!userId || !productId) return res.status(400).json({ error: "Missing parameters" });
+  
+  try {
+    const userRef = doc(db, "users", userId);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) throw new Error("User not found");
+    
+    let referrerRef = null;
+    const referredByCode = userSnap.data().referredBy;
+    if (referredByCode) {
+      const referrerQuery = query(collection(db, "users"), where("referralCode", "==", referredByCode));
+      const refDocs = await getDocs(referrerQuery);
+      if (!refDocs.empty) {
+        referrerRef = refDocs.docs[0].ref;
+      }
+    }
+    
+    await runTransaction(db, async (transaction) => {
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists()) throw new Error("User not found");
+      const userData = userDoc.data();
+      
+      const prodRef = doc(db, "products", productId);
+      const prodDoc = await transaction.get(prodRef);
+      if (!prodDoc.exists()) throw new Error("Plan not found");
+      const prodData = prodDoc.data();
+      
+      if (userData.balance < prodData.investmentAmount) {
+        throw new Error("Insufficient balance. Please deposit funds first.");
+      }
+      
+      // Deduct balance
+      transaction.update(userRef, {
+        balance: userData.balance - prodData.investmentAmount
+      });
+      
+      // Create Investment
+      const invRef = doc(collection(db, "investments"));
+      transaction.set(invRef, {
+        userId,
+        planId: productId,
+        planName: prodData.name,
+        investmentAmount: prodData.investmentAmount,
+        dailyIncome: prodData.dailyIncome,
+        durationDays: prodData.durationDays,
+        expectedEarnings: prodData.totalExpectedEarnings,
+        totalPayout: prodData.totalPayout,
+        accruedEarnings: 0,
+        daysAccrued: 0,
+        startDate: serverTimestamp(),
+        lastAccrualDate: serverTimestamp(),
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      // Record Transaction
+      const txRef = doc(collection(db, "transactions"));
+      transaction.set(txRef, {
+        userId,
+        type: "investment",
+        amount: prodData.investmentAmount,
+        description: `Purchased plan: ${prodData.name}`,
+        status: "completed",
+        createdAt: serverTimestamp()
+      });
+      
+      // Referral Commission (10%)
+      if (referrerRef) {
+        const referrerDoc = await transaction.get(referrerRef);
+        if (referrerDoc.exists()) {
+          const refData = referrerDoc.data() as any;
+          const commission = prodData.investmentAmount * 0.10;
+          
+          transaction.update(referrerRef, {
+            balance: (refData.balance || 0) + commission,
+            referralEarnings: (refData.referralEarnings || 0) + commission,
+            totalEarnings: (refData.totalEarnings || 0) + commission
+          });
+          
+          const refTxRef = doc(collection(db, "transactions"));
+          transaction.set(refTxRef, {
+            userId: referrerDoc.id,
+            type: "referral_bonus",
+            amount: commission,
+            description: `10% Commission for ${userData.fullName}'s investment`,
+            status: "completed",
+            createdAt: serverTimestamp()
+          });
+        }
+      }
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+async function startServer() {
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    expressApp.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    expressApp.use(express.static(distPath));
+    expressApp.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  expressApp.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    // Initialize backend worker asynchronously after server starts
+    initBackendWorker().catch(console.error);
+  });
+}
+
+startServer();
+

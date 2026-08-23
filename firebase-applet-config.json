@@ -1,0 +1,13 @@
+{
+  "projectId": "elearning-e9601",
+  "appId": "1:370228914732:web:8a6cf27252eeb29002bf89",
+  "apiKey": "AIzaSyC-VEA-wS9-Hw2JOwWeD035rheDbaj_yzs",
+  "authDomain": "elearning-e9601.firebaseapp.com",
+  "databaseURL": "https://elearning-e9601-default-rtdb.firebaseio.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "elearning-e9601.firebasestorage.app",
+  "messagingSenderId": "370228914732",
+  "measurementId": "G-LLQ67JM1V4",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}

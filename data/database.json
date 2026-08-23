@@ -1,0 +1,101 @@
+{
+  "users": [
+    {
+      "id": "usr_admin_01",
+      "fullName": "Ashraf H",
+      "email": "AshrafH04@gmail.com",
+      "password": "popular",
+      "phone": "+256700000000",
+      "role": "admin",
+      "status": "active",
+      "createdAt": "2026-08-20T12:00:00.000Z",
+      "avatar": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150",
+      "referralCode": "ASHRAF01"
+    }
+  ],
+  "profiles": [
+    {
+      "userId": "usr_admin_01",
+      "accountId": "ACC-000001",
+      "tier": "Platform Administrator",
+      "country": "UGANDA"
+    }
+  ],
+  "wallets": {
+    "usr_admin_01": {
+      "userId": "usr_admin_01",
+      "availableBalance": 0,
+      "totalDeposited": 0,
+      "totalInvested": 0,
+      "totalEarnings": 0,
+      "pendingWithdrawals": 0
+    }
+  },
+  "products": [
+    {
+      "id": "prod_1",
+      "name": "D10 Neo Solar Power Unit",
+      "description": "Entry-tier solar generator for household lighting & mobile charging with consistent daily returns.",
+      "minInvestment": 20000,
+      "maxInvestment": 100000,
+      "durationDays": 45,
+      "dailyRate": 4000,
+      "imageUrl": "https://images.unsplash.com/photo-1509391365330-2e88a3be475f?w=600",
+      "category": "Solar Energy",
+      "active": true,
+      "featured": true
+    },
+    {
+      "id": "prod_2",
+      "name": "SolarLynx Home 500W",
+      "description": "Medium commercial solar array providing reliable continuous power and higher daily returns.",
+      "minInvestment": 75000,
+      "maxInvestment": 300000,
+      "durationDays": 35,
+      "dailyRate": 14000,
+      "imageUrl": "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?w=600",
+      "category": "Solar Energy",
+      "active": true,
+      "featured": true
+    },
+    {
+      "id": "prod_3",
+      "name": "EcoGrid Pro Station 2kW",
+      "description": "Advanced neighborhood solar microgrid station delivering high-yield daily cash flow.",
+      "minInvestment": 250000,
+      "maxInvestment": 1000000,
+      "durationDays": 25,
+      "dailyRate": 48000,
+      "imageUrl": "https://images.unsplash.com/photo-1497440001374-f26997328c1b?w=600",
+      "category": "Commercial Solar",
+      "active": true,
+      "featured": true
+    },
+    {
+      "id": "prod_4",
+      "name": "MegaSolar Farm Terminal",
+      "description": "Utility-scale solar farm investment tier with rapid maturity and premium returns.",
+      "minInvestment": 1200000,
+      "maxInvestment": 5000000,
+      "durationDays": 10,
+      "dailyRate": 240000,
+      "imageUrl": "https://images.unsplash.com/photo-1466611653911-95081537e5b7?w=600",
+      "category": "Utility Solar",
+      "active": true,
+      "featured": true
+    }
+  ],
+  "investments": [],
+  "transactions": [],
+  "deposits": [],
+  "withdrawals": [],
+  "redeemedCodes": {
+    "usr_admin_01": []
+  },
+  "settings": {
+    "defaultDailyRate": 4000,
+    "minDeposit": 5000,
+    "minWithdrawal": 10000,
+    "platformFeePercent": 0
+  }
+}

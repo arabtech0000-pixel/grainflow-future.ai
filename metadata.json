@@ -1,0 +1,7 @@
+{
+  "name": "Grain Flow",
+  "description": "Grain Flow - Agricultural Investment Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

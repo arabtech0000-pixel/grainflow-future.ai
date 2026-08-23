@@ -1,0 +1,97 @@
+{
+  "collections": {
+    "users": {
+      "documentId": "uid",
+      "fields": {
+        "uid": "string",
+        "email": "string",
+        "fullName": "string",
+        "phone": "string",
+        "role": "string ('admin' | 'user')",
+        "balance": "number",
+        "totalEarnings": "number",
+        "referralCode": "string",
+        "referredBy": "string | null",
+        "referralEarnings": "number",
+        "totalReferrals": "number",
+        "status": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "products": {
+      "documentId": "auto",
+      "fields": {
+        "name": "string",
+        "investmentAmount": "number",
+        "dailyIncome": "number",
+        "durationDays": "number",
+        "totalExpectedEarnings": "number",
+        "totalPayout": "number",
+        "isActive": "boolean",
+        "isPopular": "boolean",
+        "createdAt": "timestamp"
+      }
+    },
+    "investments": {
+      "documentId": "auto",
+      "fields": {
+        "userId": "string",
+        "planId": "string",
+        "planName": "string",
+        "investmentAmount": "number",
+        "dailyIncome": "number",
+        "durationDays": "number",
+        "expectedEarnings": "number",
+        "totalPayout": "number",
+        "accruedEarnings": "number",
+        "daysAccrued": "number",
+        "startDate": "timestamp",
+        "maturityDate": "timestamp",
+        "lastAccrualDate": "timestamp",
+        "status": "string ('active' | 'completed' | 'cancelled')",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    },
+    "deposits": {
+      "documentId": "auto",
+      "fields": {
+        "userId": "string",
+        "userName": "string",
+        "userEmail": "string",
+        "amount": "number",
+        "method": "string",
+        "reference": "string",
+        "status": "string ('pending' | 'completed' | 'rejected')",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    },
+    "withdrawals": {
+      "documentId": "auto",
+      "fields": {
+        "userId": "string",
+        "userName": "string",
+        "userEmail": "string",
+        "amount": "number",
+        "method": "string",
+        "bankName": "string",
+        "accountNumber": "string",
+        "status": "string ('pending' | 'completed' | 'rejected')",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
+    },
+    "transactions": {
+      "documentId": "auto",
+      "fields": {
+        "userId": "string",
+        "type": "string ('deposit' | 'withdrawal' | 'investment' | 'earning' | 'referral_commission')",
+        "amount": "number",
+        "description": "string",
+        "status": "string",
+        "createdAt": "timestamp"
+      }
+    }
+  }
+}
