@@ -164,14 +164,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
         },
         body: JSON.stringify({ action })
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Action failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data.success === false)) {
+        throw new Error(data.error || 'Deposit approval/rejection failed');
       }
       onRefresh();
       fetchAdminDeposits();
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Deposit action failed');
     }
   };
 
@@ -186,13 +186,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
         },
         body: JSON.stringify({ action })
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Action failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data.success === false)) {
+        throw new Error(data.error || 'Withdrawal processing failed');
       }
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Withdrawal action failed');
     }
   };
 
@@ -208,13 +208,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
         },
         body: JSON.stringify({ action })
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Action failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || (data.success === false)) {
+        throw new Error(data.error || `Failed to ${action === 'active' ? 'approve' : 'reject'} investment`);
       }
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Investment action failed');
     } finally {
       setProcessingInvId(null);
     }
@@ -283,8 +283,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
   };
 
   const pendingInvestmentsCount = investmentsList.filter(i => {
-    const s = String(i.status || '').toLowerCase();
-    return s === 'pending_review' || s === 'pending' || s === 'pending_approval';
+    const s = String(i.status || '').toLowerCase().trim();
+    return s.includes('pending') || s === 'review' || s === 'pending_review' || s === 'pending_approval';
   }).length;
 
   return (
@@ -533,8 +533,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
             </div>
           ) : (
             investmentsList.map((inv, index) => {
-              const statusLower = String(inv.status || '').toLowerCase();
-              const isPending = statusLower === 'pending_review' || statusLower === 'pending' || statusLower === 'pending_approval';
+              const statusLower = String(inv.status || '').toLowerCase().trim();
+              const isPending = statusLower.includes('pending') || statusLower === 'review' || statusLower === 'pending_review' || statusLower === 'pending_approval';
 
               return (
                 <div key={`inv-${inv.id || index}`} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">

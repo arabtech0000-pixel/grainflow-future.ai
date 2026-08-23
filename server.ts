@@ -51,17 +51,50 @@ const authenticateUser = async (req, res, next) => {
   next();
 };
 
-const requireAdmin = async (req, res, next) => {
-  if (!(req as any).user) return res.status(401).json({ error: 'Unauthorized' });
+const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authedUser = (req as any).user;
+  if (!authedUser) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: No token provided or invalid authentication' });
+  }
+
   try {
-    const userSnap = await get(ref(db, `users/${(req as any).user.uid}`));
-    if (userSnap.exists() && userSnap.val().role === 'admin') {
-      next();
-    } else {
-      res.status(403).json({ error: 'Forbidden: Admin access required' });
+    const uid = authedUser.uid;
+    const email = (authedUser.email || '').toLowerCase().trim();
+
+    if (uid) {
+      const userSnap = await get(ref(db, `users/${uid}`));
+      if (userSnap.exists() && userSnap.val().role === 'admin') {
+        return next();
+      }
     }
-  } catch (e) { console.error('Auth err:', e.message);
-    res.status(500).json({ error: e.message });
+
+    const adminEmails = ['ashirafashes04@gmail.com', 'arabtech0000@gmail.com'];
+    if (email && adminEmails.includes(email)) {
+      if (uid) {
+        await update(ref(db, `users/${uid}`), { role: 'admin' });
+      }
+      return next();
+    }
+
+    if (email) {
+      const usersSnap = await get(ref(db, 'users'));
+      if (usersSnap.exists()) {
+        const users = usersSnap.val();
+        for (const [uKey, uVal] of Object.entries(users) as [string, any][]) {
+          if (uVal && uVal.email && uVal.email.toLowerCase().trim() === email && uVal.role === 'admin') {
+            if (uid && uKey !== uid) {
+              await update(ref(db, `users/${uid}`), { role: 'admin' });
+            }
+            return next();
+          }
+        }
+      }
+    }
+
+    return res.status(403).json({ success: false, error: 'Forbidden: Admin privilege required' });
+  } catch (e: any) {
+    console.error('requireAdmin middleware error:', e);
+    return res.status(500).json({ success: false, error: `Auth Error: ${e.message}` });
   }
 };
 
@@ -756,18 +789,30 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
   const { action } = req.body;
   try {
     const invSnap = await get(ref(db, `investments/${id}`));
-    if (!invSnap.exists()) throw new Error("Investment not found");
+    if (!invSnap.exists()) {
+      return res.status(404).json({ success: false, error: "Investment record not found in database" });
+    }
     const inv = invSnap.val();
 
-    const currentStatus = String(inv.status || '').toLowerCase();
-    if (currentStatus !== "pending_review" && currentStatus !== "pending" && currentStatus !== "pending_approval") {
-      throw new Error("Investment already processed");
+    const rawStatus = String(inv.status || '').toLowerCase().trim();
+    const isPending = 
+      rawStatus.includes('pending') || 
+      rawStatus === 'review' || 
+      rawStatus === 'pending_review' || 
+      rawStatus === 'pending_approval' || 
+      rawStatus === 'pending approval';
+
+    if (!isPending) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Investment cannot be processed because its current status is "${inv.status || 'unknown'}". It is not pending approval.` 
+      });
     }
     
     const now = Date.now();
     const updates: any = {};
-    const normalizedAction = String(action || '').toLowerCase();
-    const isApproval = normalizedAction === "active" || normalizedAction === "approved" || normalizedAction === "completed";
+    const normalizedAction = String(action || '').toLowerCase().trim();
+    const isApproval = normalizedAction === "active" || normalizedAction === "approved" || normalizedAction === "completed" || normalizedAction === "approve";
     const targetStatus = isApproval ? "active" : "cancelled";
 
     updates[`investments/${id}/status`] = targetStatus;
@@ -786,7 +831,7 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
         const allInvs = allInvsSnap.val();
         for (const [invKey, invVal] of Object.entries(allInvs) as [string, any][]) {
           if (invVal && invVal.userId === inv.userId) {
-            const valStatus = String(invVal.status || '').toLowerCase();
+            const valStatus = String(invVal.status || '').toLowerCase().trim();
             const isApproved = (invKey === id) || valStatus === 'active' || valStatus === 'approved' || valStatus === 'completed';
             if (isApproved) {
               const prof = Number(invVal.expectedEarnings) || (Number(invVal.dailyIncome || 0) * Number(invVal.durationDays || 0));
@@ -821,9 +866,14 @@ expressApp.patch("/api/admin/investments/:id", requireAdmin, async (req, res) =>
     if (targetStatus === "active") {
       await syncEarningsForUser(inv.userId);
     }
-    res.json({ success: true, status: targetStatus });
+    return res.json({ 
+      success: true, 
+      status: targetStatus, 
+      message: `Investment successfully ${targetStatus === 'active' ? 'approved' : 'rejected'}` 
+    });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    console.error(`[Admin Investment Action Error] ID: ${id}, Error:`, e);
+    return res.status(500).json({ success: false, error: e.message || 'Failed to process investment action' });
   }
 });
 
