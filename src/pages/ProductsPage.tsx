@@ -3,6 +3,8 @@ import { Product, User, Wallet } from '../types';
 import { Package, ShieldCheck, CheckCircle2, AlertCircle, ArrowDownLeft, Clock, Zap, TrendingUp } from 'lucide-react';
 import { formatUGX } from '../utils/formatters';
 import { ProductCard } from '../components/ProductCard';
+import { db } from '../lib/firebase';
+import { ref, get, update, push } from 'firebase/database';
 
 
 
@@ -51,13 +53,81 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
     setTimeout(async () => {
       setReviewStep('under_review');
       try {
-        const res = await fetch('/api/investments/purchase', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.uid, productId: selectedProduct.id })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to purchase investment');
+        let apiSuccess = false;
+        try {
+          const res = await fetch('/api/investments/purchase', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.uid || user.id, productId: selectedProduct.id })
+          });
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const data = await res.json();
+            if (res.ok && data.success) {
+              apiSuccess = true;
+            } else if (!res.ok && data.error) {
+              throw new Error(data.error);
+            }
+          }
+        } catch (apiErr: any) {
+          if (apiErr.message && !apiErr.message.includes('JSON')) {
+            throw apiErr;
+          }
+        }
+
+        if (!apiSuccess) {
+          // Direct Firebase Realtime Database fallback
+          const userId = user.uid || user.id;
+          const userSnap = await get(ref(db, `users/${userId}`));
+          if (!userSnap.exists()) throw new Error("User account not found");
+          const uData = userSnap.val();
+
+          if (uData.status && uData.status !== 'active') {
+            throw new Error("Account is restricted");
+          }
+
+          if ((uData.balance || 0) < selectedProduct.investmentAmount) {
+            throw new Error("Insufficient balance");
+          }
+
+          const now = Date.now();
+          const invRef = push(ref(db, "investments"));
+          const txRef = push(ref(db, "transactions"));
+
+          const updates: any = {};
+          updates[`users/${userId}/balance`] = (uData.balance || 0) - selectedProduct.investmentAmount;
+
+          updates[`investments/${invRef.key}`] = {
+            id: invRef.key,
+            userId,
+            planId: selectedProduct.id,
+            planName: selectedProduct.name,
+            investmentAmount: selectedProduct.investmentAmount,
+            dailyIncome: selectedProduct.dailyIncome,
+            durationDays: selectedProduct.durationDays,
+            expectedEarnings: selectedProduct.totalExpectedEarnings || (selectedProduct.dailyIncome * selectedProduct.durationDays),
+            totalPayout: selectedProduct.totalPayout || (selectedProduct.investmentAmount + (selectedProduct.dailyIncome * selectedProduct.durationDays)),
+            accruedEarnings: 0,
+            daysAccrued: 0,
+            startDate: now,
+            lastAccrualDate: now,
+            status: "pending_review",
+            createdAt: now,
+            updatedAt: now
+          };
+
+          updates[`transactions/${txRef.key}`] = {
+            id: txRef.key,
+            userId,
+            type: "investment",
+            amount: selectedProduct.investmentAmount,
+            description: `Purchased Investment Plan: ${selectedProduct.name}`,
+            status: "completed",
+            createdAt: now
+          };
+
+          await update(ref(db), updates);
+        }
 
         setReviewStep('success');
         setSuccessMsg(`Successfully submitted ${selectedProduct.name} for review! It will become active once approved by administration.`);
@@ -74,6 +144,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
         setLoading(false);
       }
     }, 2000);
+
   };
 
   return (

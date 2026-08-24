@@ -3,7 +3,7 @@ import { ShieldCheck, Users, ArrowDownLeft, ArrowUpRight, TrendingUp, CheckCircl
 import { AdminStats, Product, DepositRequest, WithdrawalRequest, User, Investment } from '../types';
 import { formatUGX, formatDate } from '../utils/formatters';
 import { auth, db, storage } from '../lib/firebase';
-import { ref, onValue, push } from 'firebase/database';
+import { ref, onValue, push, get, update } from 'firebase/database';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Logo } from '../components/Logo';
 
@@ -155,19 +155,77 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
 
   const handleDepositAction = async (id: string, action: 'completed' | 'APPROVED' | 'REJECTED') => {
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/admin/deposits/${id}`, {
-        method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ action })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || (data.success === false)) {
-        throw new Error(data.error || 'Deposit approval/rejection failed');
+      let apiSuccess = false;
+      let apiErrorMessage = '';
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch(`/api/admin/deposits/${id}`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ action })
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok && data.success) {
+            apiSuccess = true;
+          } else if (data.error) {
+            apiErrorMessage = data.error;
+          }
+        }
+      } catch (e: any) {
+        console.warn("[Admin Deposit Action] API call failed, using client database fallback:", e);
       }
+
+      if (!apiSuccess) {
+        if (apiErrorMessage && apiErrorMessage.includes("already processed")) {
+          throw new Error(apiErrorMessage);
+        }
+
+        const depSnap = await get(ref(db, `deposits/${id}`));
+        if (!depSnap.exists()) throw new Error("Deposit record not found");
+        const dep = depSnap.val();
+
+        const now = Date.now();
+        const updates: any = {};
+
+        if (action === "completed" || action === "APPROVED") {
+          updates[`deposits/${id}/status`] = "completed";
+          updates[`deposits/${id}/updatedAt`] = now;
+
+          if (dep.userId) {
+            const userSnap = await get(ref(db, `users/${dep.userId}`));
+            if (userSnap.exists()) {
+              const u = userSnap.val();
+              const newBal = Number(u.balance || 0) + Number(dep.amount || 0);
+              const newDep = Number(u.totalDeposited || 0) + Number(dep.amount || 0);
+              updates[`users/${dep.userId}/balance`] = newBal;
+              updates[`users/${dep.userId}/totalDeposited`] = newDep;
+            }
+          }
+
+          const txRef = push(ref(db, "transactions"));
+          updates[`transactions/${txRef.key}`] = {
+            id: txRef.key,
+            userId: dep.userId,
+            type: "deposit",
+            amount: Number(dep.amount || 0),
+            description: `Deposit Approved via Gateway`,
+            reference: dep.reference,
+            status: "completed",
+            createdAt: now
+          };
+        } else {
+          updates[`deposits/${id}/status`] = "REJECTED";
+          updates[`deposits/${id}/updatedAt`] = now;
+        }
+
+        await update(ref(db), updates);
+      }
+
       onRefresh();
       fetchAdminDeposits();
     } catch (err: any) {
@@ -177,19 +235,70 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
 
   const handleWithdrawalAction = async (id: string, action: 'completed' | 'REJECTED') => {
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/admin/withdrawals/${id}`, {
-        method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ action })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || (data.success === false)) {
-        throw new Error(data.error || 'Withdrawal processing failed');
+      let apiSuccess = false;
+      let apiErrorMessage = '';
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch(`/api/admin/withdrawals/${id}`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ action })
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok && data.success) {
+            apiSuccess = true;
+          } else if (data.error) {
+            apiErrorMessage = data.error;
+          }
+        }
+      } catch (e: any) {
+        console.warn("[Admin Withdrawal Action] API call failed, using client database fallback:", e);
       }
+
+      if (!apiSuccess) {
+        if (apiErrorMessage && apiErrorMessage.includes("already processed")) {
+          throw new Error(apiErrorMessage);
+        }
+
+        const witSnap = await get(ref(db, `withdrawals/${id}`));
+        if (!witSnap.exists()) throw new Error("Withdrawal record not found");
+        const wit = witSnap.val();
+
+        const now = Date.now();
+        const updates: any = {};
+        updates[`withdrawals/${id}/status`] = action;
+        updates[`withdrawals/${id}/updatedAt`] = now;
+
+        if (action === "REJECTED") {
+          const userSnap = await get(ref(db, `users/${wit.userId}`));
+          if (userSnap.exists()) {
+            const u = userSnap.val();
+            updates[`users/${wit.userId}/balance`] = Number(u.balance || 0) + Number(wit.amount || 0);
+          }
+        }
+
+        if (action === "completed" || action === "REJECTED") {
+          const txRef = push(ref(db, "transactions"));
+          updates[`transactions/${txRef.key}`] = {
+            id: txRef.key,
+            userId: wit.userId,
+            type: "withdrawal",
+            amount: Number(wit.amount || 0),
+            description: `${action === "completed" ? "Approved" : "Rejected"} withdrawal to ${wit.bankName}`,
+            reference: wit.reference,
+            status: action === "completed" ? "completed" : "failed",
+            createdAt: now
+          };
+        }
+
+        await update(ref(db), updates);
+      }
+
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Withdrawal action failed');
@@ -199,19 +308,64 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
   const handleInvestmentAction = async (id: string, action: 'active' | 'cancelled') => {
     setProcessingInvId(id);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/admin/investments/${id}`, {
-        method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ action })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || (data.success === false)) {
-        throw new Error(data.error || `Failed to ${action === 'active' ? 'approve' : 'reject'} investment`);
+      let apiSuccess = false;
+      let apiErrorMessage = '';
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch(`/api/admin/investments/${id}`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ action })
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok && data.success) {
+            apiSuccess = true;
+          } else if (data.error) {
+            apiErrorMessage = data.error;
+          }
+        }
+      } catch (e: any) {
+        console.warn("[Admin Investment Action] API call failed, using client database fallback:", e);
       }
+
+      if (!apiSuccess) {
+        if (apiErrorMessage && (apiErrorMessage.includes("already processed") || apiErrorMessage.includes("not pending"))) {
+          throw new Error(apiErrorMessage);
+        }
+
+        const invSnap = await get(ref(db, `investments/${id}`));
+        if (!invSnap.exists()) throw new Error("Investment record not found");
+        const inv = invSnap.val();
+
+        const now = Date.now();
+        const updates: any = {};
+        const isApproval = action === "active";
+        const targetStatus = isApproval ? "active" : "cancelled";
+
+        updates[`investments/${id}/status`] = targetStatus;
+        updates[`investments/${id}/updatedAt`] = now;
+
+        if (targetStatus === "active") {
+          updates[`investments/${id}/startDate`] = now;
+          updates[`investments/${id}/lastAccrualDate`] = now;
+          updates[`investments/${id}/daysAccrued`] = 0;
+          updates[`investments/${id}/accruedEarnings`] = 0;
+        } else {
+          const userSnap = await get(ref(db, `users/${inv.userId}`));
+          if (userSnap.exists()) {
+            const u = userSnap.val();
+            updates[`users/${inv.userId}/balance`] = Number(u.balance || 0) + Number(inv.investmentAmount || 0);
+          }
+        }
+
+        await update(ref(db), updates);
+      }
+
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Investment action failed');
@@ -219,6 +373,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onRefresh }) => {
       setProcessingInvId(null);
     }
   };
+
 
   const handleClearDepositHistory = async () => {
     if (!confirm('Are you sure you want to clear completed and rejected deposit history? This action is irreversible.')) return;

@@ -1067,17 +1067,22 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     expressApp.use(express.static(distPath));
-    expressApp.get('*all', (req, res) => {
+    expressApp.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  expressApp.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    expressApp.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  }
 
   // Run backend worker in background so it never blocks startup
   initBackendWorker().catch(err => console.error("Background worker error:", err));
 }
 
 startServer();
+
+export default expressApp;
+export { expressApp };

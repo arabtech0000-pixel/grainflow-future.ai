@@ -13,8 +13,9 @@ import {
 import { formatUGX } from '../utils/formatters';
 import { Product, User } from '../types';
 
-import { auth, storage } from '../lib/firebase';
+import { auth, storage, db } from '../lib/firebase';
 import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage';
+import { ref, set, get, update, push } from 'firebase/database';
 
 interface MarziPaymentModalProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Step 1: Start deposit by hitting the server to create PENDING_PAYMENT transaction, then open gateway
+  // Step 1: Start deposit by hitting the server (or client RTDB fallback), then open gateway
   const handleMakePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
@@ -79,38 +80,63 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
     setLoading(true);
 
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch('/api/deposits/request', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          userId: user.uid || user.id,
-          email: user.email,
-          amount: numAmount,
-          method: 'MarzPay',
-          productId: product?.id
-        })
-      });
-      
-      const text = await res.text();
-      let data: any;
+      let data: any = null;
       try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error("Non-JSON response:", text);
-        throw new Error("Payment service returned an invalid response. Please try again later.");
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch('/api/deposits/request', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            userId: user.uid || user.id,
+            email: user.email,
+            amount: numAmount,
+            method: 'MarzPay',
+            productId: product?.id
+          })
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        }
+      } catch (fetchErr) {
+        console.warn("[Deposit Request] Server endpoint unavailable, using direct DB fallback:", fetchErr);
       }
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to start deposit');
+      if (data && data.success && data.depositId) {
+        setDepositId(data.depositId);
+        setReference(data.reference);
+        setLockedAmount(data.amount || numAmount);
+      } else {
+        // Fallback for Vercel static deployments
+        const depRef = push(ref(db, "deposits"));
+        const refCode = `DEP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const now = Date.now();
+        const depositRecord = {
+          id: depRef.key,
+          userId: user.uid || user.id,
+          userName: user.fullName || "User",
+          userEmail: user.email || "",
+          amount: numAmount,
+          productId: product?.id || null,
+          phone: "0700000000",
+          method: "MasrPay Gateway",
+          reference: refCode,
+          status: "PENDING_PAYMENT",
+          createdAt: now,
+          updatedAt: now
+        };
+
+        await set(ref(db, `deposits/${depRef.key}`), depositRecord);
+
+        setDepositId(depRef.key || `dep_${now}`);
+        setReference(refCode);
+        setLockedAmount(numAmount);
       }
 
-      setDepositId(data.depositId);
-      setReference(data.reference);
-      setLockedAmount(data.amount || numAmount);
       setStep('payment_and_proof');
 
       // Open MasrPay hosted payment gateway in a new tab
@@ -193,7 +219,7 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
     }
   };
 
-  // Step 2: Submit payment screenshot proof to backend for admin approval
+  // Step 2: Submit payment screenshot proof to backend or direct RTDB fallback for admin approval
   const handleSubmitProof = async () => {
     if (!screenshotPreview) {
       setErrorMessage('Please upload a screenshot of your completed payment.');
@@ -208,35 +234,34 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
     setErrorMessage('');
 
     try {
-      // 1. Retrieve authorization token with timeout protection
-      let token: string | undefined;
+      let data: any = null;
+      let apiSuccess = false;
+
       try {
-        token = await Promise.race([
-          auth.currentUser?.getIdToken(),
-          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000))
-        ]);
-      } catch (tErr) {
-        console.warn('Token fetch warning:', tErr);
-      }
+        let token: string | undefined;
+        try {
+          token = await Promise.race([
+            auth.currentUser?.getIdToken(),
+            new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000))
+          ]);
+        } catch (tErr) {
+          console.warn('Token fetch warning:', tErr);
+        }
 
-      // 2. Prepare payload with optimized screenshot
-      const payload = {
-        depositId: depositId || `dep_${Date.now()}`,
-        amount: lockedAmount,
-        userId: user?.uid || user?.id,
-        userName: user?.fullName || 'User',
-        userEmail: user?.email || '',
-        reference,
-        screenshot: screenshotPreview
-      };
+        const payload = {
+          depositId: depositId || `dep_${Date.now()}`,
+          amount: lockedAmount,
+          userId: user?.uid || user?.id,
+          userName: user?.fullName || 'User',
+          userEmail: user?.email || '',
+          reference,
+          screenshot: screenshotPreview
+        };
 
-      // 3. Submit proof payload with 15-second abort controller
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      let res: Response;
-      try {
-        res = await fetch('/api/deposits/submit-proof', {
+        const res = await fetch('/api/deposits/submit-proof', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -244,30 +269,69 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
           },
           body: JSON.stringify(payload),
           signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
+        }).finally(() => clearTimeout(timeoutId));
 
-      let data: any = {};
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        try {
-          data = JSON.parse(text);
-        } catch {
-          if (!res.ok) throw new Error(`Server returned HTTP ${res.status}`);
-          data = { success: true };
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+          if (res.ok && data.success) {
+            apiSuccess = true;
+          }
         }
+      } catch (apiErr) {
+        console.warn("[Submit Proof] API endpoint call failed, using client database fallback:", apiErr);
       }
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || data.message || 'Failed to submit payment proof.');
+      if (!apiSuccess) {
+        // Direct Firebase Realtime Database fallback for Vercel/Static hosting
+        const actualDepositId = depositId || `dep_${Date.now()}`;
+        const depRefPath = `deposits/${actualDepositId}`;
+        const now = Date.now();
+        const effectiveUserId = user?.uid || user?.id || 'anonymous';
+        const refCode = reference || `DEP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+
+        const depSnap = await get(ref(db, depRefPath));
+        const updates: any = {};
+
+        if (!depSnap.exists()) {
+          updates[depRefPath] = {
+            id: actualDepositId,
+            userId: effectiveUserId,
+            userName: user?.fullName || "User",
+            userEmail: user?.email || "",
+            amount: Number(lockedAmount || 50000),
+            method: "MasrPay Gateway",
+            reference: refCode,
+            status: "PENDING_ADMIN_APPROVAL",
+            screenshot: screenshotPreview,
+            createdAt: now,
+            submittedAt: now,
+            updatedAt: now
+          };
+        } else {
+          updates[`${depRefPath}/userId`] = effectiveUserId;
+          updates[`${depRefPath}/screenshot`] = screenshotPreview;
+          updates[`${depRefPath}/status`] = "PENDING_ADMIN_APPROVAL";
+          updates[`${depRefPath}/submittedAt`] = now;
+          updates[`${depRefPath}/updatedAt`] = now;
+        }
+
+        const txRef = push(ref(db, "transactions"));
+        updates[`transactions/${txRef.key}`] = {
+          id: txRef.key,
+          userId: effectiveUserId,
+          type: "deposit",
+          amount: Number(lockedAmount || 50000),
+          description: `Deposit via MasrPay Gateway [Pending Admin Approval]`,
+          reference: refCode,
+          status: "PENDING_ADMIN_APPROVAL",
+          createdAt: now
+        };
+
+        await update(ref(db), updates);
       }
 
-      // 4. Transition view to pending approval confirmation
+      // Transition view to pending approval confirmation
       setStep('submitted_pending');
       if (onSuccess) {
         onSuccess();
@@ -283,6 +347,7 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
       setLoading(false);
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">

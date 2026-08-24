@@ -4,6 +4,8 @@ import { Wallet, Transaction, User } from '../types';
 import { formatUGX, formatDate } from '../utils/formatters';
 import { isValidUgandanPhoneNumber } from '../utils/validators';
 import { MarziPaymentModal } from '../components/MarziPaymentModal';
+import { db } from '../lib/firebase';
+import { ref, get, update, push } from 'firebase/database';
 
 interface WalletPageProps {
   wallet: Wallet;
@@ -51,30 +53,102 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     setWithdrawLoading(true);
 
     try {
-      const res = await fetch('/api/wallet/withdraw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.uid || user.id,
+      let data: any = null;
+      let apiSuccess = false;
+
+      try {
+        const res = await fetch('/api/wallet/withdraw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.uid || user.id,
+            amount: withdrawAmount,
+            accountNumber: withdrawPhone,
+            bankName
+          })
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+          if (res.ok && data.success) {
+            apiSuccess = true;
+          } else if (!res.ok && data.error) {
+            throw new Error(data.error);
+          }
+        }
+      } catch (fetchErr: any) {
+        if (fetchErr.message && !fetchErr.message.includes('JSON')) {
+          throw fetchErr;
+        }
+      }
+
+      if (!apiSuccess) {
+        // Direct Firebase Realtime Database fallback
+        const userId = user.uid || user.id;
+        const userSnap = await get(ref(db, `users/${userId}`));
+        if (!userSnap.exists()) throw new Error("User record not found");
+        const uData = userSnap.val();
+
+        if (uData.status && uData.status !== 'active') {
+          throw new Error("Account is restricted");
+        }
+
+        if ((uData.balance || 0) < withdrawAmount) {
+          throw new Error("Insufficient balance");
+        }
+
+        if (withdrawAmount < 20000) {
+          throw new Error("Minimum withdrawal amount is UGX 20,000");
+        }
+
+        const reference = "WIT-" + Math.floor(100000 + Math.random() * 900000);
+        const now = Date.now();
+        const witRef = push(ref(db, "withdrawals"));
+        const txRef = push(ref(db, "transactions"));
+
+        const updates: any = {};
+        updates[`users/${userId}/balance`] = (uData.balance || 0) - withdrawAmount;
+        updates[`withdrawals/${witRef.key}`] = {
+          id: witRef.key,
+          userId,
+          userName: uData.fullName || user.fullName || "User",
+          userEmail: uData.email || user.email || "",
           amount: withdrawAmount,
           accountNumber: withdrawPhone,
-          bankName
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Withdrawal failed');
+          bankName,
+          reference,
+          status: "PENDING_ADMIN_APPROVAL",
+          createdAt: now,
+          updatedAt: now
+        };
+
+        updates[`transactions/${txRef.key}`] = {
+          id: txRef.key,
+          userId,
+          type: "withdrawal",
+          amount: withdrawAmount,
+          description: `Withdrawal request to ${bankName} (${withdrawPhone})`,
+          reference,
+          status: "PENDING_ADMIN_APPROVAL",
+          createdAt: now
+        };
+
+        await update(ref(db), updates);
+      }
 
       setWithdrawMsg('Withdrawal request initiated. Please wait while your transaction is processed.');
       setTimeout(() => {
         setIsWithdrawOpen(false);
         setWithdrawMsg('');
         onRefresh();
-      }, 3000);
+      }, 2500);
     } catch (err: any) {
-      setWithdrawError(err.message);
+      setWithdrawError(err.message || 'Withdrawal failed.');
     } finally {
       setWithdrawLoading(false);
     }
+
   };
 
   return (
