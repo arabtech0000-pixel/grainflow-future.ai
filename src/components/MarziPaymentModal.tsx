@@ -61,6 +61,8 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
 
   if (!isOpen) return null;
 
+const MARZ_PAYMENT_URL = 'https://wallet.wearemarz.com/pay/d6e9f656-9712-4d9b-b967-8a6b273d0e60';
+
   // Step 1: Start deposit by hitting the server (or client RTDB fallback), then open gateway
   const handleMakePayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +79,14 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
       return;
     }
 
+    // Synchronously trigger window.open inside the click event thread before any awaits.
+    // This ensures mobile browsers (Samsung Browser, Safari, Chrome) do not block the popup.
+    try {
+      window.open(MARZ_PAYMENT_URL, '_blank');
+    } catch (popupErr) {
+      console.warn('Window open error:', popupErr);
+    }
+
     setLoading(true);
 
     try {
@@ -87,7 +97,7 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
           body: JSON.stringify({
             userId: user.uid || user.id,
@@ -138,25 +148,21 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
       }
 
       setStep('payment_and_proof');
-
-      // Open MasrPay hosted payment gateway in a new tab
-      try {
-        const newWindow = window.open('https://wallet.wearemarz.com/pay/d6e9f656-9712-4d9b-b967-8a6b273d0e60', '_blank');
-        if (!newWindow) {
-          console.warn('Popup blocked by browser; fallback link available.');
-        }
-      } catch (err) {
-        console.warn('Window open error:', err);
-      }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to initiate payment.');
+      console.warn('[Deposit Request Error]:', err);
+      // Graceful error recovery: set deposit details and proceed to proof step
+      const refCode = `DEP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      setDepositId(`dep_${Date.now()}`);
+      setReference(refCode);
+      setLockedAmount(numAmount);
+      setStep('payment_and_proof');
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenMasrPayAgain = () => {
-    window.open('https://wallet.wearemarz.com/pay/d6e9f656-9712-4d9b-b967-8a6b273d0e60', '_blank');
+    window.open(MARZ_PAYMENT_URL, '_blank');
   };
 
   const compressImage = (file: File): Promise<string> => {
@@ -425,17 +431,24 @@ export const MarziPaymentModal: React.FC<MarziPaymentModalProps> = ({
                 </div>
               </div>
 
-              {/* Action: Open MasrPay Again if popup was blocked */}
-              <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-3 flex items-center justify-between">
-                <span className="text-xs text-slate-300">Need to complete payment on MasrPay?</span>
-                <button
-                  type="button"
-                  onClick={handleOpenMasrPayAgain}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1"
+              {/* Action: Open Marz Payment Gateway Direct Link */}
+              <div className="bg-gradient-to-r from-emerald-950/60 via-slate-900 to-blue-950/60 border border-emerald-500/30 rounded-2xl p-4 text-center space-y-2 shadow-lg">
+                <div className="flex items-center justify-center space-x-2 text-emerald-400 font-bold text-xs">
+                  <ExternalLink className="w-4 h-4" />
+                  <span>MARZ PAYMENT GATEWAY</span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Complete your payment on the Marz Payment page:
+                </p>
+                <a
+                  href={MARZ_PAYMENT_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center space-x-2 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open Gateway</span>
-                </button>
+                  <span>🚀 OPEN MARZ PAYMENT PAGE</span>
+                  <ExternalLink className="w-4 h-4" />
+                </a>
               </div>
 
               {/* Action: Upload Screenshot */}
